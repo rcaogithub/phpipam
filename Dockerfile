@@ -1,5 +1,5 @@
 FROM php:5.6-apache
-MAINTAINER Pierre Cheynier <pierre.cheynier@gmail.com>
+MAINTAINER Rui Cao <rui.cao@rci.rogers.com>
 
 ENV PHPIPAM_SOURCE https://github.com/phpipam/phpipam/
 ENV PHPIPAM_VERSION 1.3.1
@@ -8,13 +8,23 @@ ENV PHPMAILER_VERSION 5.2.21
 ENV PHPSAML_SOURCE https://github.com/onelogin/php-saml/
 ENV PHPSAML_VERSION 2.10.6
 ENV WEB_REPO /var/www/html
+ENV PATH=${WEB_REPO}/bin:${PATH} HOME=${WEB_REPO}
 
 # Install required deb packages
 RUN sed -i /etc/apt/sources.list -e 's/$/ non-free'/ && \
     apt-get update && apt-get -y upgrade && \
     rm /etc/apt/preferences.d/no-debian-php && \
-    apt-get install -y libcurl4-gnutls-dev libgmp-dev libmcrypt-dev libpng12-dev libfreetype6-dev libjpeg-dev libpng-dev libldap2-dev libsnmp-dev snmp-mibs-downloader && \
+    apt-get install -y libgmp-dev libmcrypt-dev libpng12-dev libfreetype6-dev libjpeg-dev libpng-dev libldap2-dev && \
     rm -rf /var/lib/apt/lists/*
+
+# OpenShift permission modifications
+RUN mkdir -p /var/run/apache2 && chmod 777 -R /var/run/apache2 &&\
+    mkdir -p /var/log/apache2 && chmod 777 -R /var/log/apache2 &&\
+    mkdir -p /var/lock/apache2 && chmod 777 -R /var/lock/apache2 &&\
+    mkdir -p /etc/apache2/sites-enabled && chmod 777 -R /etc/apache2/sites-enabled &&\
+    mkdir -p /var/www/html && chmod 777 -R /var/www/html && \
+    chmod 664 /etc/passwd
+
 
 # Install required packages and files required for snmp
 RUN curl -s ftp://ftp.cisco.com/pub/mibs/v2/CISCO-SMI.my -o /var/lib/mibs/ietf/CISCO-SMI.txt && \
@@ -54,14 +64,18 @@ RUN tar -xzf /tmp/v${PHPMAILER_VERSION}.tar.gz -C ${WEB_REPO}/functions/PHPMaile
 ADD ${PHPSAML_SOURCE}/archive/v${PHPSAML_VERSION}.tar.gz /tmp/
 RUN tar -xzf /tmp/v${PHPSAML_VERSION}.tar.gz -C ${WEB_REPO}/functions/php-saml/ --strip-components=1
 
-# Use system environment variables into config.php
+
 RUN cp ${WEB_REPO}/config.dist.php ${WEB_REPO}/config.php && \
-    chown www-data /var/www/html/app/admin/import-export/upload && \
+    sed -i -e "s/Listen 80/Listen 8080/" /etc/apache2/ports.conf &&\
     sed -i -e "s/\['host'\] = 'localhost'/\['host'\] = getenv(\"MYSQL_ENV_MYSQL_HOST\") ?: \"mysql\"/" \
     -e "s/\['user'\] = 'phpipam'/\['user'\] = getenv(\"MYSQL_ENV_MYSQL_USER\") ?: \"root\"/" \
     -e "s/\['pass'\] = 'phpipamadmin'/\['pass'\] = getenv(\"MYSQL_ENV_MYSQL_PASSWORD\")/" \
     -e "s/\['port'\] = 3306;/\['port'\] = 3306;\n\n\$password_file = getenv(\"MYSQL_ENV_MYSQL_PASSWORD_FILE\");\nif(file_exists(\$password_file))\n\$db\['pass'\] = preg_replace(\"\/\\\\s+\/\", \"\", file_get_contents(\$password_file));/" \
     ${WEB_REPO}/config.php
 
-EXPOSE 80
+USER 10001
+
+WORKDIR ${WEB_REPO}
+ 
+EXPOSE 8080
 
